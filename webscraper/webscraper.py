@@ -102,61 +102,6 @@ class Browser():
 
 		return courtDates
 
-	# Find all the algorithms in the table
-	def getAlgorithms(self):
-		url = 'https://www.quantopian.com/algorithms'
-		self.go(url)
-
-		table = self.browser.find_elements_by_id("algorithms-table")
-		rows = table[0].find_elements_by_tag_name("tr") # get all of the rows in the table
-		rows = rows[1:]
-		algorithms = []
-		person = {}
-		# Get the name of the algorithm and the url to go to
-		for row in rows:
-			person['name'] = ' '.join(row.text.split(' ')[0:2])
-			print(person['name'])
-
-			person['algURL'] = row.find_elements_by_tag_name('a')[0].get_attribute('href')
-			print(person['algURL'])
-
-			algorithms.append(person)
-			person = {}
-
-		return algorithms
-
-	# Get the live trading link
-	def getAlgorithmData(self, person):
-		url = person['algURL']
-		self.go(url)
-
-		liveTradingLink = self.browser.find_elements_by_id('live-trading-link')
-		person['liveAlgURL'] = [] if liveTradingLink == [] else liveTradingLink[0].find_elements_by_tag_name('a')[0].get_attribute('href')
-		# print(person['liveAlgURL'])
-		return person
-
-	# Get all the live trading data
-	def getLiveAlgorithmData(self, person):
-		url = person['liveAlgURL']
-		if url != []:
-			self.go(url)
-
-			# Add any other pertinent data
-			liveTradingReturns = self.browser.find_elements_by_id('livetrading-stats-returns')
-			liveTradingPnL = self.browser.find_elements_by_id('livetrading-stats-dollarpnl')
-
-			person['liveTradingReturns'] = '--' if liveTradingReturns == [] else liveTradingReturns[0].text
-			person['liveTradingPnL'] = '--' if liveTradingPnL == [] else liveTradingPnL[0].text
-
-			print(person['name'] + ' - % Returns: ' + person['liveTradingReturns'])
-			print(person['name'] + ' - $ P/L: ' + person['liveTradingPnL'])
-
-		else: # Algorithm is not live trading so just add blanks
-			person['liveTradingReturns'] = '--'
-			person['liveTradingPnL'] = '--'
-
-		return person
-
 	# Go to a specific url. Sleep for 1.5 seconds to ensure page loads. If error occurs, increase sleep time
 	def go(self, url):
 		self.browser.get(url)
