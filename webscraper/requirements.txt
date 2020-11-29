@@ -15,3 +15,6 @@ selenium == 3.141.0
 
 # webscraper.py: 10
 webdriver_manager == 1.7
+
+# pymsgbox.py: 11
+pymsgbox == 1.0.9
