@@ -4,11 +4,14 @@ import pickle
 import os.path
 import datetime
 import collections
+import platform
+import pymsgbox
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
 from webdriver_manager.chrome import ChromeDriverManager
 
 # Class for performing all actions in the browser
@@ -16,32 +19,33 @@ class Browser():
 	def __init__(self, payload):
 		self.payload = payload
 		options = Options()
-		options.headless = True
-		self.browser = webdriver.Chrome(ChromeDriverManager().install(), chrome_options=options)
+		#options.headless = True
+		self.browser = webdriver.Chrome(ChromeDriverManager().install(), options=options)
 		self.cookies = []
+		self.platformOS = platform.system()
 
-	# Gets all the data for a row
-	def getRow(self, algorithms):
-		row = []
-		for person in algorithms:
-			row.append(person['liveTradingReturns'])
-			row.append(person['liveTradingPnL'])
+	# # Gets all the data for a row
+	# def getRow(self, algorithms):
+	# 	row = []
+	# 	for person in algorithms:
+	# 		row.append(person['liveTradingReturns'])
+	# 		row.append(person['liveTradingPnL'])
+	#
+	# 	return row
+	#
+	# # Drive the actions to perform
+	# def runOld(self):
+	# 	self.login()
+	# 	algorithms = self.getAlgorithms()
+	# 	for i, alg in enumerate(algorithms):
+	# 		person = self.getAlgorithmData(alg)
+	# 		person = self.getLiveAlgorithmData(person)
+	# 		algorithms[i] = person
+	# 		person = {}
+	#
+	# 	return self.getRow(algorithms)
 
-		return row
-
-	# Drive the actions to perform
-	def runOld(self):
-		self.login()
-		algorithms = self.getAlgorithms()
-		for i, alg in enumerate(algorithms):
-			person = self.getAlgorithmData(alg)
-			person = self.getLiveAlgorithmData(person)
-			algorithms[i] = person
-			person = {}
-
-		return self.getRow(algorithms)
-
-	# Login to quantopian
+	# Login
 	def login(self):
 		url = 'https://ts2.clubinterconnect.com/carleton/home/login.do'
 		self.go(url)
@@ -61,9 +65,16 @@ class Browser():
 		self.login()
 		courtLinks = self.getDayLinks()
 
-		for date, courtDate in courtLinks.items():
-			self.getCalendarTable(courtDate)
-			courtDate.toString()
+		# Gets the last day
+		lastCourtDate = courtLinks[next(reversed(courtLinks))]
+		self.getCalendarTable(lastCourtDate)
+		# Gets the courts by times
+		times = self.getByTime(lastCourtDate)
+		self.openLinksByTimesAndCourts(times)
+
+		#for date, courtDate in courtLinks.items():
+		#	self.getCalendarTable(courtDate)
+		#	courtDate.toString()
 
 
 	def getCalendarTable(self, courtDate):
@@ -102,16 +113,103 @@ class Browser():
 
 		return courtDates
 
-	# Go to a specific url. Sleep for 1.5 seconds to ensure page loads. If error occurs, increase sleep time
+	def getByTime(self, courtDate):
+		times = collections.OrderedDict()
+		format = "%I:%M %p"
+		minTimeHour = 16 # 4pm
+		minTimeMin = 0
+		maxTimeHour = 22 # 10pm
+		maxTimeMin = 00
+		# Creates a dictionary of times with a list of court links
+		# Checks if the time is within our threshold
+		for link in courtDate.courtLinks:
+			time = self.getTime(link)
+			actualTime = datetime.datetime.strptime(time, format).time()
+			if actualTime > datetime.time(minTimeHour,minTimeMin) and actualTime < datetime.time(maxTimeHour,maxTimeMin):
+				if time in times:
+					times[time].append(link)
+				else:
+					times[time] = [link]
+		return times
+
+	def openLinksByTimesAndCourts(self, times):
+		maxCourt = None
+		alreadyBooked = False
+		shouldExit = False
+		errorText = "You either timed out or you don't have permission to access this page."
+		for time, links in times.items():
+			courts = collections.OrderedDict()
+			# Creates a dictionary of court links
+			for link in links:
+				court = int(link[link.find("item="):link.find("&date")].replace("item=",''))
+				courts[court] = link
+
+			# Sorts the links by the court number in descending order
+			courtKeys = sorted(courts, key=lambda key: courts[key], reverse=True)
+
+			for key in courtKeys:
+				# maxCourt = max(courts, key=int)
+				self.newTab(courts[key])
+				# In-case it was already booked in the time it took to get here
+				if errorText in self.browser.page_source:
+					continue;
+
+				if not alreadyBooked:
+					#self.bookCurrentCourt()
+					alreadyBooked = True
+					result = self.messageBox('Booked Court', 'Booked Court ' + str(key) + ' at ' + str(time), ["Try Next", "Finish Booking"])
+					print(result)
+
+					if result == "Finish Booking":
+						shouldExit = True
+						break
+					else
+						alreadyBooked = False
+						# TODO : Unbook?
+
+			if shouldExit:
+				break
+
+		inp = input()
+			# for court, link in courts:
+			# 	if court != maxCourt:
+			# 		self.newTab(link)
+
+	def bookCurrentCourt(self):
+
+		submitButton = self.browser.find_element_by_id("submit")
+		submitButton.click()
+
+		time.sleep(1) # Need to sleep to allow for the redirection to posts
+
+
+	def getTime(self, link):
+		timePart = link[link.find("time="):]
+		timePart = timePart.replace('time=', '').replace('%20', ' ')
+		#print(timePart)
+		return timePart
+
+	# Go to a specific url. Sleep for 1 seconds to ensure page loads. If error occurs, increase sleep time
 	def go(self, url):
 		self.browser.get(url)
 		self.setCookies()
-		time.sleep(1.5) # Need to sleep the allow for the page to load
+		time.sleep(1) # Need to sleep the allow for the page to load
+
+	# Need to check OS because MacOS uses COMMAND+T but everyone else uses CONTROL+T
+	def newTab(self, url):
+		if self.platformOS == 'Darwin': # Darwin is MacOS, could also be Linux or Windows
+			self.browser.find_element_by_tag_name('body').send_keys(Keys.COMMAND + 't')
+		else:
+			self.browser.find_element_by_tag_name('body').sendKeys(Keys.CONTROL +"t");
+		self.go(url)
 
 	# Set the cookies for the current page because sometimes they are lost
 	def setCookies(self):
 		for cookie in self.cookies:
 			self.browser.add_cookie(cookie)
+
+	def messageBox(self, title, text, buttons=["OK", "Cancel"]):
+		return pymsgbox.confirm(text, title=title, buttons=buttons)
 
 class CourtDate():
 	def __init__(self, date, pageLink=""):
